@@ -914,7 +914,7 @@ class SenseVoiceSmall(nn.Module):
             if ibest_writer is not None:
                 ibest_writer["text"][key[i]] = text
 
-            if output_timestamp:
+            if output_timestamp and len(token_int) > 4:
                 from itertools import groupby
 
                 timestamp = []
@@ -923,7 +923,7 @@ class SenseVoiceSmall(nn.Module):
                 token_ids = []
                 for tok_ls in token_back_to_id:
                     if tok_ls: token_ids.extend(tok_ls)
-                    else: token_ids.append(124)
+                    else: token_ids.append(124) # 124 is ""
 
                 if len(token_ids) == 0:
                     result_i = {"key": key[i], "text": text}
