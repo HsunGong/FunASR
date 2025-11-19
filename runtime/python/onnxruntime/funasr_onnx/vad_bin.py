@@ -60,20 +60,21 @@ class Fsmn_vad:
 
             model = AutoModel(model=model_dir)
             model_dir = model.export(type="onnx", quantize=quantize, **kwargs)
-        config_file = os.path.join(model_dir, "config.yaml")
-        cmvn_file = os.path.join(model_dir, "am.mvn")
-        config = read_yaml(config_file)
 
-        self.frontend = WavFrontend(cmvn_file=cmvn_file, **config["frontend_conf"])
+        config_file = os.path.join(model_dir, "config.yaml")
+        self.cmvn_file = os.path.join(model_dir, "am.mvn")
+        self.config = read_yaml(config_file)
+        self.frontend = WavFrontend(cmvn_file=self.cmvn_file, **self.config["frontend_conf"])
+
         self.ort_infer = OrtInferSession(
             model_file, device_id, intra_op_num_threads=intra_op_num_threads
         )
         self.batch_size = batch_size
-        self.vad_scorer_config = config["model_conf"]
+        self.vad_scorer_config = self.config["model_conf"]
         self.max_end_sil = (
-            max_end_sil if max_end_sil is not None else config["model_conf"]["max_end_silence_time"]
+            max_end_sil if max_end_sil is not None else self.config["model_conf"]["max_end_silence_time"]
         )
-        self.encoder_conf = config["encoder_conf"]
+        self.encoder_conf = self.config["encoder_conf"]
 
     def prepare_cache(self, in_cache: list = []):
         if len(in_cache) > 0:
@@ -90,16 +91,18 @@ class Fsmn_vad:
         waveform_list = self.load_data(audio_in, self.frontend.opts.frame_opts.samp_freq)
         waveform_nums = len(waveform_list)
         is_final = kwargs.get("kwargs", False)
-        segments = [[]] * self.batch_size
+        all_segments = []
         for beg_idx in range(0, waveform_nums, self.batch_size):
             vad_scorer = E2EVadModel(self.vad_scorer_config)
             end_idx = min(waveform_nums, beg_idx + self.batch_size)
             waveform = waveform_list[beg_idx:end_idx]
-            feats, feats_len = self.extract_feat(waveform)
+            feats, feats_len = self.extract_feat(waveform, frontend=self.frontend)
             waveform = np.array(waveform)
             param_dict = kwargs.get("param_dict", dict())
             in_cache = param_dict.get("in_cache", list())
             in_cache = self.prepare_cache(in_cache)
+
+            batch_segments = [[] * (end_idx - beg_idx)]
             try:
                 t_offset = 0
                 step = int(min(feats_len.max(), 6000))
@@ -131,35 +134,19 @@ class Fsmn_vad:
                     # segments = self.vad_scorer(scores, waveform[0][None, :], is_final=is_final, max_end_sil=self.max_end_sil)
 
                     if segments_part:
-                        for batch_num in range(0, self.batch_size):
-                            segments[batch_num] += segments_part[batch_num]
+                        for bidx in range(end_idx - beg_idx):
+                            batch_segments[bidx] += segments_part[bidx] 
 
             except ONNXRuntimeError:
                 # logging.warning(traceback.format_exc())
-                logging.warning("input wav is silence or noise")
-                segments = ""
+                logging.warning("input wav is silence or noise, reset all batches")
 
-        return segments
+            all_segments.extend(batch_segments)
+
+        return all_segments
 
     def load_data(self, wav_content: Union[str, np.ndarray, List[str]], fs: int = None) -> List:
-        
-        def convert_to_wav(input_path, output_path):
-            from pydub import AudioSegment
-            try:
-                audio = AudioSegment.from_mp3(input_path)
-                audio.export(output_path, format="wav")
-                print("音频文件为mp3格式，已转换为wav格式")
-                
-            except Exception as e:
-                print(f"转换失败:{e}")
-
         def load_wav(path: str) -> np.ndarray:
-            if not path.lower().endswith('.wav'):
-                import os
-                input_path = path
-                path = os.path.splitext(path)[0]+'.wav'
-                convert_to_wav(input_path,path) #将mp3格式转换成wav格式
-
             waveform, _ = librosa.load(path, sr=fs)
             return waveform
 
@@ -170,15 +157,15 @@ class Fsmn_vad:
             return [load_wav(wav_content)]
 
         if isinstance(wav_content, list):
-            return [load_wav(path) for path in wav_content]
+            return [self.load_data(path)[0] for path in wav_content]
 
         raise TypeError(f"The type of {wav_content} is not in [str, np.ndarray, list]")
 
-    def extract_feat(self, waveform_list: List[np.ndarray]) -> Tuple[np.ndarray, np.ndarray]:
+    def extract_feat(self, waveform_list: List[np.ndarray], frontend: WavFrontend) -> Tuple[np.ndarray, np.ndarray]:
         feats, feats_len = [], []
         for waveform in waveform_list:
-            speech, _ = self.frontend.fbank(waveform)
-            feat, feat_len = self.frontend.lfr_cmvn(speech)
+            speech, _ = frontend.fbank(waveform)
+            feat, feat_len = frontend.lfr_cmvn(speech)
             feats.append(feat)
             feats_len.append(feat_len)
 
@@ -311,7 +298,7 @@ class Fsmn_vad_online:
             return [load_wav(wav_content)]
 
         if isinstance(wav_content, list):
-            return [load_wav(path) for path in wav_content]
+            return [self.load_data(path)[0] for path in wav_content]
 
         raise TypeError(f"The type of {wav_content} is not in [str, np.ndarray, list]")
 

@@ -31,7 +31,7 @@ setuptools.setup(
         "librosa",
         "onnxruntime>=1.7.0",
         "scipy",
-        "numpy<=1.26.4",
+        "numpy>2.0",
         "kaldi-native-fbank",
         "PyYAML>=5.1.2",
         "onnx",
@@ -45,5 +45,9 @@ setuptools.setup(
         "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
+        "Programming Language :: Python :: 3.11",
+        "Programming Language :: Python :: 3.12",
+        "Programming Language :: Python :: 3.13",
+        "Programming Language :: Python :: 3.14",
     ],
 )
