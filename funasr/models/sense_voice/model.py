@@ -907,12 +907,24 @@ class SenseVoiceSmall(nn.Module):
 
             # Change integer-ids to tokens
             text = tokenizer.decode(token_int)
-
-            # result_i = {"key": key[i], "text": text}
-            # results.append(result_i)
+            if len(token_int) > 4:
+                clean_text = tokenizer.decode(token_int[4:])
+            else:
+                clean_text = ""
 
             if ibest_writer is not None:
                 ibest_writer["text"][key[i]] = text
+
+            result_i = {
+                "key": key[i],
+                "text": text,
+                "clean_text": clean_text,
+                "lang": tokenizer.decode(token_int[0]),
+                "emotion": tokenizer.decode(token_int[1]),
+                "speech_detection":
+                tokenizer.decode(token_int[2]),
+                "itn": tokenizer.decode(token_int[3]),
+            }
 
             if output_timestamp and len(token_int) > 4:
                 from itertools import groupby
@@ -926,7 +938,6 @@ class SenseVoiceSmall(nn.Module):
                     else: token_ids.append(124) # 124 is ""
 
                 if len(token_ids) == 0:
-                    result_i = {"key": key[i], "text": text}
                     results.append(result_i)
                     continue
 
@@ -953,10 +964,9 @@ class SenseVoiceSmall(nn.Module):
                         token_id += 1
                     _start = _end
                 timestamp, words = self.post(timestamp)
-                result_i = {"key": key[i], "text": text, "timestamp": timestamp, "words": words}
+                result_i.update({"timestamp": timestamp, "words": words})
                 results.append(result_i)
             else:
-                result_i = {"key": key[i], "text": text}
                 results.append(result_i)
         return results, meta_data
 
