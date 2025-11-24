@@ -31,7 +31,7 @@ setuptools.setup(
         "librosa",
         "onnxruntime>=1.7.0",
         "scipy",
-        "numpy>2.0",
+        "numpy",
         "kaldi-native-fbank",
         "PyYAML>=5.1.2",
         "onnx",
