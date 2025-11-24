@@ -641,8 +641,15 @@ class SenseVoiceSmall(nn.Module):
 
         self.lid_dict = {"auto": 0, "zh": 3, "en": 4, "yue": 7, "ja": 11, "ko": 12, "nospeech": 13}
         self.lid_int_dict = {24884: 3, 24885: 4, 24888: 7, 24892: 11, 24896: 12, 24992: 13}
+        self.lang_ids = (24884, 24885, 24888, 24892, 24896, 24992)
+        self.lang_tokens = ("auto", "zh", "en", "yue", "ja", "ko", "nospeech")
         self.textnorm_dict = {"withitn": 14, "woitn": 15}
         self.textnorm_int_dict = {25016: 14, 25017: 15}
+        self.textnorm_ids = (25016, 25017)
+        self.textnorm_tokens = ("withitn", "woitn")
+        self.speech_detection_ids = (0, 1, 2)
+        self.speech_detection_tokens = ("auto", "speech", "nospeech")
+
         self.embed = torch.nn.Embedding(
             7 + len(self.lid_dict) + len(self.textnorm_dict), input_size
         )
@@ -653,6 +660,8 @@ class SenseVoiceSmall(nn.Module):
             "angry": 25003,
             "neutral": 25004,
         }
+        self.emo_ids = (25009, 25001, 25002, 25003, 25004)
+        self.emo_tokens = ("unknown", "happy", "sad", "angry", "neutral")
 
         self.criterion_att = LabelSmoothingLoss(
             size=self.vocab_size,
@@ -813,6 +822,7 @@ class SenseVoiceSmall(nn.Module):
         key: list = ["wav_file_tmp_name"],
         tokenizer=None,
         frontend=None,
+        detect_meta_info=False,
         **kwargs,
     ):
 
@@ -885,15 +895,33 @@ class SenseVoiceSmall(nn.Module):
         if kwargs.get("ban_emo_unk", False):
             ctc_logits[:, :, self.emo_dict["unk"]] = -float("inf")
 
-        results = []
         b, n, d = encoder_out.size()
         if isinstance(key[0], (list, tuple)):
             key = key[0]
         if len(key) < b:
             key = key * b
+
+        results = []
+        if detect_meta_info:
+            ctc_logits[:, :, 0] = -float("inf")
+            batch_lang = ctc_logits[:, 0, self.lang_ids].cpu().tolist()
+            batch_emotion = ctc_logits[:, 1, self.emo_ids].cpu().tolist()
+            batch_speech_detection_probs, batch_speech_detection_ids = ctc_logits[:, 2].topk(15, dim=-1)
+            batch_itn = ctc_logits[:, 3, self.textnorm_ids].cpu().tolist()
+
+            for i in range(b):
+                results.append({
+                    "key": key[i],
+                    "language": [(t, p) for t, p in zip(self.lang_tokens, batch_lang[i])],
+                    "emotion": [(t, p) for t, p in zip(self.emo_tokens, batch_emotion[i])],
+                    "speech_detection": [(tokenizer.decode(_id), _prob) for _id, _prob in zip(batch_speech_detection_ids[i].cpu().tolist(), batch_speech_detection_probs[i].cpu().tolist())],
+                    "itn": [(t, p) for t, p in zip(self.textnorm_tokens, batch_itn[i])],
+                })
+            return results, meta_data
+
+        greedy_outs = ctc_logits.argmax(dim=-1)
         for i in range(b):
-            x = ctc_logits[i, : encoder_out_lens[i].item(), :]
-            yseq = x.argmax(dim=-1)
+            yseq = greedy_outs[i, : encoder_out_lens[i].item()]
             yseq = torch.unique_consecutive(yseq, dim=-1)
 
             ibest_writer = None
