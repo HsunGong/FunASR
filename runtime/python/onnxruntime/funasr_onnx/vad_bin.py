@@ -33,6 +33,7 @@ class Fsmn_vad:
         intra_op_num_threads: int = 4,
         max_end_sil: int = None,
         cache_dir: str = None,
+        model_conf: dict = {},
         **kwargs,
     ):
 
@@ -65,6 +66,7 @@ class Fsmn_vad:
         self.cmvn_file = os.path.join(model_dir, "am.mvn")
         self.config = read_yaml(config_file)
         self.frontend = WavFrontend(cmvn_file=self.cmvn_file, **self.config["frontend_conf"])
+        self.config["model_conf"].update(model_conf)
 
         self.ort_infer = OrtInferSession(
             model_file, device_id, intra_op_num_threads=intra_op_num_threads
